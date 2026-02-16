@@ -31,7 +31,7 @@ st.caption("Strict search: Finds exact words only (e.g., 'ice' will not match 'p
 @st.cache_data
 def load_data():
     # Make sure this matches your uploaded CSV name (v3 or v4)
-    filename = "smart_similes_v4.csv" 
+    filename = "simile_database.csv" 
     try:
         df = pd.read_csv(filename)
         # Ensure strings are clean
@@ -44,7 +44,7 @@ def load_data():
 df = load_data()
 
 if df is None:
-    st.error("❌ Database not found! Please upload 'smart_similes_v4.csv' to GitHub.")
+    st.error("❌ Database not found! Please upload 'simile_database.csv' to GitHub.")
     st.stop()
 
 # 3. STRICT HIGHLIGHTING FUNCTION
