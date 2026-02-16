@@ -10,7 +10,7 @@ st.markdown("""
     .highlight {
         background-color: #ffd700;
         color: black;
-        padding: 2px 4px;
+        padding: 0 4px;
         border-radius: 4px;
         font-weight: bold;
     }
@@ -25,16 +25,16 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 st.title("🎤 Rap Simile Engine")
-st.caption("Search for a word to see what it is compared to (Signifier) or what is compared to it (Signified).")
+st.caption("Strict search: Finds exact words only (e.g., 'ice' will not match 'police').")
 
 # 2. LOAD DATA
 @st.cache_data
 def load_data():
-    # ENSURE THIS MATCHES YOUR NEW FILE NAME
-    filename = "simile_database.csv" 
+    # Make sure this matches your uploaded CSV name (v3 or v4)
+    filename = "smart_similes_v4.csv" 
     try:
         df = pd.read_csv(filename)
-        # Clean data
+        # Ensure strings are clean
         df['signified'] = df['signified'].astype(str).str.lower().str.strip()
         df['signifier'] = df['signifier'].astype(str).str.lower().str.strip()
         return df
@@ -44,38 +44,44 @@ def load_data():
 df = load_data()
 
 if df is None:
-    st.error(f"❌ Database not found! Please upload 'simile_database.csv' to GitHub.")
+    st.error("❌ Database not found! Please upload 'smart_similes_v4.csv' to GitHub.")
     st.stop()
 
-# 3. HELPER: HIGHLIGHT TEXT
-def highlight_sentence(text, target_words):
-    # Case insensitive replacement
-    for word in target_words:
-        if len(word) > 2: # Avoid highlighting small words like 'a'
-            pattern = re.compile(re.escape(word), re.IGNORECASE)
-            text = pattern.sub(f'<span class="highlight">{word}</span>', text)
+# 3. STRICT HIGHLIGHTING FUNCTION
+def highlight_sentence_strict(text, terms):
+    # Sort by length to handle phrases first
+    terms = sorted(terms, key=len, reverse=True)
+    
+    for term in terms:
+        if len(term) >= 1:
+            # \b = Word Boundary (The magic fix)
+            # It ensures 'ice' matches 'ice' but NOT 'police'
+            pattern = re.compile(r'\b' + re.escape(term) + r'\b', re.IGNORECASE)
+            text = pattern.sub(f'<span class="highlight">{term}</span>', text)
     return text
 
 # 4. SEARCH UI
-query = st.text_input("Enter a word (e.g., 'nut', 'boss', 'ice')...", "")
+query = st.text_input("Search for a word (e.g., 'ice', 'leaves', 'nut')...", "")
 
 if query:
-    query = query.lower().strip()
+    q = query.lower().strip()
     
-    # FILTER: Look in specific columns only
-    results = df[
-        (df['signified'] == query) | 
-        (df['signifier'].str.contains(query, regex=False))
-    ]
+    # 5. STRICT SEARCH LOGIC
+    # We use regex=True with \b boundaries
+    mask = (
+        df['signified'].str.contains(r'\b' + re.escape(q) + r'\b', case=False, regex=True) | 
+        df['signifier'].str.contains(r'\b' + re.escape(q) + r'\b', case=False, regex=True)
+    )
     
-    st.markdown(f"### Found {len(results)} matches for *'{query}'*")
+    results = df[mask]
     
-    # 5. CUSTOM DISPLAY LOOP
-    # We use a loop instead of a table to render the HTML highlighting
+    st.markdown(f"### Found {len(results)} exact matches for *'{q}'*")
+    
+    # LIMIT RESULTS to 50 to prevent crashing on common words
     for index, row in results.head(50).iterrows():
         
-        # Highlight the Subject and the Object in the full line
-        clean_line = highlight_sentence(row['line'], [row['signified'], row['signifier']])
+        # Highlight strict matches only
+        clean_line = highlight_sentence_strict(row['line'], [row['signified'], row['signifier']])
         
         st.markdown(f"""
         <div class="simile-box">
@@ -90,6 +96,6 @@ if query:
             </div>
         </div>
         """, unsafe_allow_html=True)
-        
+
 elif not df.empty:
-    st.info("Try searching for words like 'wolf', 'ghost', 'money', or 'soft'.")
+    st.info("Try searching for 'ice' — it will no longer find 'police'.")
