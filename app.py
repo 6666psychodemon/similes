@@ -31,7 +31,7 @@ st.caption("Strict search: Finds exact words only (e.g., 'ice' will not match 'p
 @st.cache_data
 def load_data():
     # Make sure this matches your uploaded CSV name (v3 or v4)
-    filename = "smart_similes_v6_diversd.csv" 
+    filename = "smart_similes_v6_diverse.csv" 
     try:
         df = pd.read_csv(filename)
         # Ensure strings are clean
