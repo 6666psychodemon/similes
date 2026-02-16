@@ -21,20 +21,30 @@ st.markdown("""
         margin-bottom: 10px;
         border: 1px solid #444;
     }
+    .meta-text {
+        color: #888; 
+        font-size: 0.8em; 
+        margin-bottom: 5px;
+    }
+    .comparison-text {
+        margin-top: 5px; 
+        font-size: 0.9em; 
+        color: #aaa;
+        font-style: italic;
+    }
 </style>
 """, unsafe_allow_html=True)
 
 st.title("🎤 Rap Simile Engine")
-st.caption("Strict search: Finds exact words only (e.g., 'ice' will not match 'police').")
+st.caption("Strict Semantic Search: No pronouns, no verbs, just pure imagery.")
 
 # 2. LOAD DATA
 @st.cache_data
 def load_data():
-    # Make sure this matches your uploaded CSV name (v3 or v4)
-    filename = "smart_similes_v6_diverse.csv" 
+    # UPDATE FILENAME TO V7
+    filename = "smart_similes_v7.csv" 
     try:
         df = pd.read_csv(filename)
-        # Ensure strings are clean
         df['signified'] = df['signified'].astype(str).str.lower().str.strip()
         df['signifier'] = df['signifier'].astype(str).str.lower().str.strip()
         return df
@@ -44,58 +54,80 @@ def load_data():
 df = load_data()
 
 if df is None:
-    st.error("❌ Database not found! Please upload 'smart_similes_v6_diverse.csv' to GitHub.")
+    st.error("❌ Database not found! Please upload 'smart_similes_v7.csv' to GitHub.")
     st.stop()
 
-# 3. STRICT HIGHLIGHTING FUNCTION
-def highlight_sentence_strict(text, terms):
-    # Sort by length to handle phrases first
-    terms = sorted(terms, key=len, reverse=True)
+# 3. HELPER: Clean words for comparison
+def clean_word(text):
+    # Removes 'a', 'the' from start of phrases for better matching
+    return re.sub(r'^(a|an|the|my|his|her|your|our|their|that|this)\s+', '', text)
+
+# 4. HIGHLIGHTING ENGINE (Fault Tolerant)
+def highlight_sentence(text, terms):
+    # Deduplicate terms and sort by length (longest first)
+    # This ensures "Ice Cream" is highlighted before "Ice"
+    terms = list(set([t for t in terms if t and len(t) > 1]))
+    terms.sort(key=len, reverse=True)
     
     for term in terms:
-        if len(term) >= 1:
-            # \b = Word Boundary (The magic fix)
-            # It ensures 'ice' matches 'ice' but NOT 'police'
-            pattern = re.compile(r'\b' + re.escape(term) + r'\b', re.IGNORECASE)
-            text = pattern.sub(f'<span class="highlight">{term}</span>', text)
+        # Escape special regex chars (like + or ?)
+        safe_term = re.escape(term)
+        
+        # \b ensures word boundaries. Case insensitive.
+        pattern = re.compile(r'\b' + safe_term + r'\b', re.IGNORECASE)
+        text = pattern.sub(f'<span class="highlight">{term}</span>', text)
+        
     return text
 
-# 4. SEARCH UI
-query = st.text_input("Search for a word (e.g., 'ice', 'leaves', 'nut')...", "")
+# 5. SEARCH UI
+query = st.text_input("Search for a concept (e.g., 'ice', 'wolf', 'ghost')...", "")
 
 if query:
     q = query.lower().strip()
     
-    # 5. STRICT SEARCH LOGIC
-    # We use regex=True with \b boundaries
-    mask = (
-        df['signified'].str.contains(r'\b' + re.escape(q) + r'\b', case=False, regex=True) | 
-        df['signifier'].str.contains(r'\b' + re.escape(q) + r'\b', case=False, regex=True)
-    )
-    
+    # --- SEARCH LOGIC ---
+    def is_match(row_val):
+        clean_val = clean_word(row_val)
+        
+        # 1. Exact Match
+        if q == clean_val: return True
+        
+        # 2. Last Word Match (The "Head" Noun)
+        # e.g. Query "Leaves" matches "Maple Leaves"
+        if q == clean_val.split()[-1]: return True
+        
+        return False
+
+    # Apply search mask
+    mask = df.apply(lambda row: is_match(row['signified']) or is_match(row['signifier']), axis=1)
     results = df[mask]
     
-    st.markdown(f"### Found {len(results)} exact matches for *'{q}'*")
+    st.markdown(f"### Found {len(results)} matches for *'{q}'*")
     
-    # LIMIT RESULTS to 50 to prevent crashing on common words
+    # 6. DISPLAY LOOP
     for index, row in results.head(50).iterrows():
         
-        # Highlight strict matches only
-        clean_line = highlight_sentence_strict(row['line'], [row['signified'], row['signifier']])
+        # We pass 3 things to the highlighter:
+        # 1. The Subject (Signified)
+        # 2. The Object (Signifier)
+        # 3. The User's Query (As a backup, in case the phrases don't match exactly)
+        highlight_targets = [row['signified'], row['signifier'], q]
+        
+        clean_line = highlight_sentence(row['line'], highlight_targets)
         
         st.markdown(f"""
         <div class="simile-box">
-            <div style="color: #888; font-size: 0.8em; margin-bottom: 5px;">
+            <div class="meta-text">
                 {row['artist']} — {row['song']}
             </div>
             <div style="font-size: 1.1em;">
                 "{clean_line}"
             </div>
-            <div style="margin-top: 5px; font-size: 0.9em; color: #aaa;">
+            <div class="comparison-text">
                 Comparing <b>{row['signified']}</b> → <b>{row['signifier']}</b>
             </div>
         </div>
         """, unsafe_allow_html=True)
 
 elif not df.empty:
-    st.info("Try searching for 'ice' — it will no longer find 'police'.")
+    st.info("Try searching for nouns or adjectives. The engine now filters out 'like me' and 'like that'.")
