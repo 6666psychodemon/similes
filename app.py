@@ -31,7 +31,7 @@ st.caption("Search for a word to see what it is compared to (Signifier) or what 
 @st.cache_data
 def load_data():
     # ENSURE THIS MATCHES YOUR NEW FILE NAME
-    filename = "smart_similes_v3.csv" 
+    filename = "simile_database.csv" 
     try:
         df = pd.read_csv(filename)
         # Clean data
@@ -44,7 +44,7 @@ def load_data():
 df = load_data()
 
 if df is None:
-    st.error(f"❌ Database not found! Please upload 'smart_similes_v3.csv' to GitHub.")
+    st.error(f"❌ Database not found! Please upload 'simile_database.csv' to GitHub.")
     st.stop()
 
 # 3. HELPER: HIGHLIGHT TEXT
