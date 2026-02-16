@@ -1,49 +1,95 @@
 import streamlit as st
 import pandas as pd
+import re
 
-# 1. SETUP PAGE
-st.set_page_config(page_title="Rap Simile Search", layout="wide")
+# 1. PAGE CONFIG
+st.set_page_config(page_title="Rap Simile Engine", page_icon="🎤", layout="wide")
+
+st.markdown("""
+<style>
+    .highlight {
+        background-color: #ffd700;
+        color: black;
+        padding: 2px 4px;
+        border-radius: 4px;
+        font-weight: bold;
+    }
+    .simile-box {
+        background-color: #262730;
+        padding: 15px;
+        border-radius: 10px;
+        margin-bottom: 10px;
+        border: 1px solid #444;
+    }
+</style>
+""", unsafe_allow_html=True)
+
 st.title("🎤 Rap Simile Engine")
-st.markdown("Type a word to find how rappers use it in similes.")
+st.caption("Search for a word to see what it is compared to (Signifier) or what is compared to it (Signified).")
 
-# 2. LOAD DATA (We use @st.cache so it only loads once, not every search)
+# 2. LOAD DATA
 @st.cache_data
 def load_data():
-    # If your file is huge, we'll just read the columns we need to save RAM
-    df = pd.read_csv("simile_database.csv") # Make sure this file is in the same folder!
-    # Ensure all text is lowercase for easier searching
-    df['line_lower'] = df['line'].str.lower()
-    return df
+    # ENSURE THIS MATCHES YOUR NEW FILE NAME
+    filename = "smart_similes_v3.csv" 
+    try:
+        df = pd.read_csv(filename)
+        # Clean data
+        df['signified'] = df['signified'].astype(str).str.lower().str.strip()
+        df['signifier'] = df['signifier'].astype(str).str.lower().str.strip()
+        return df
+    except FileNotFoundError:
+        return None
 
-try:
-    df = load_data()
-    st.success(f"Loaded {len(df):,} similes from the database.")
-except FileNotFoundError:
-    st.error("❌ CSV file not found! Please put 'simile_database.csv' in this folder.")
+df = load_data()
+
+if df is None:
+    st.error(f"❌ Database not found! Please upload 'smart_similes_v3.csv' to GitHub.")
     st.stop()
 
-# 3. SEARCH INTERFACE
-query = st.text_input("Search for a noun (e.g., 'kite'), adjective (e.g., 'high'), or verb...", "")
+# 3. HELPER: HIGHLIGHT TEXT
+def highlight_sentence(text, target_words):
+    # Case insensitive replacement
+    for word in target_words:
+        if len(word) > 2: # Avoid highlighting small words like 'a'
+            pattern = re.compile(re.escape(word), re.IGNORECASE)
+            text = pattern.sub(f'<span class="highlight">{word}</span>', text)
+    return text
+
+# 4. SEARCH UI
+query = st.text_input("Enter a word (e.g., 'nut', 'boss', 'ice')...", "")
 
 if query:
-    # 4. THE SEARCH LOGIC
-    # This finds the query anywhere in the line
-    results = df[df['line_lower'].str.contains(query.lower())]
+    query = query.lower().strip()
     
-    # 5. DISPLAY RESULTS
-    st.write(f"Found **{len(results)}** matches for '{query}':")
+    # FILTER: Look in specific columns only
+    results = df[
+        (df['signified'] == query) | 
+        (df['signifier'].str.contains(query, regex=False))
+    ]
     
-    if not results.empty:
-        # Show a nice table
-        st.dataframe(
-            results[['artist', 'song', 'line']], 
-            use_container_width=True,
-            hide_index=True
-        )
-    else:
-        st.warning("No similes found. Try a different word!")
-
-# Optional: Show random examples if no search
-else:
-    st.subheader("Random Examples:")
-    st.table(df[['artist', 'song', 'line']].sample(5))
+    st.markdown(f"### Found {len(results)} matches for *'{query}'*")
+    
+    # 5. CUSTOM DISPLAY LOOP
+    # We use a loop instead of a table to render the HTML highlighting
+    for index, row in results.head(50).iterrows():
+        
+        # Highlight the Subject and the Object in the full line
+        clean_line = highlight_sentence(row['line'], [row['signified'], row['signifier']])
+        
+        st.markdown(f"""
+        <div class="simile-box">
+            <div style="color: #888; font-size: 0.8em; margin-bottom: 5px;">
+                {row['artist']} — {row['song']}
+            </div>
+            <div style="font-size: 1.1em;">
+                "{clean_line}"
+            </div>
+            <div style="margin-top: 5px; font-size: 0.9em; color: #aaa;">
+                Comparing <b>{row['signified']}</b> → <b>{row['signifier']}</b>
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+        
+elif not df.empty:
+    st.info("Try searching for words like 'wolf', 'ghost', 'money', or 'soft'.")
