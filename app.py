@@ -41,8 +41,8 @@ st.caption("Strict Semantic Search: No pronouns, no verbs, just pure imagery.")
 # 2. LOAD DATA
 @st.cache_data
 def load_data():
-    # UPDATE FILENAME TO V7
-    filename = "smart_similes_v7.csv" 
+    # UPDATE FILENAME TO V8
+    filename = "smart_similes_v8.csv" 
     try:
         df = pd.read_csv(filename)
         df['signified'] = df['signified'].astype(str).str.lower().str.strip()
@@ -54,7 +54,7 @@ def load_data():
 df = load_data()
 
 if df is None:
-    st.error("❌ Database not found! Please upload 'smart_similes_v7.csv' to GitHub.")
+    st.error("❌ Database not found! Please upload 'smart_similes_v8.csv' to GitHub.")
     st.stop()
 
 # 3. HELPER: Clean words for comparison
