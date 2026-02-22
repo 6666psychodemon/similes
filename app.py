@@ -12,50 +12,35 @@ st.markdown("""
     .highlight { background-color: #ffd700; color: black; padding: 0 4px; border-radius: 4px; font-weight: bold; }
     .simile-box { background-color: #262730; padding: 15px; border-radius: 10px; margin-bottom: 15px; border: 1px solid #444; }
     .meta-text { color: #888; font-size: 0.85em; margin-bottom: 5px; }
+    .stButton>button { width: 100%; border-radius: 20px; }
 </style>
 """, unsafe_allow_html=True)
-
-st.title("🎤 Rap Simile Engine")
 
 # 2. LOAD DATA
 @st.cache_data
 def load_all_chunks():
     all_files = glob.glob("similes_part_*.csv")
     if not all_files: return None
-    
-    with st.status("📥 Loading master database...", expanded=False) as status:
+    with st.spinner("📥 Waking up the engine..."):
         df_list = [pd.read_csv(f) for f in sorted(all_files)]
         full_df = pd.concat(df_list, ignore_index=True)
-        # Standardizing text for faster searching
         full_df['signified'] = full_df['signified'].astype(str).str.lower().str.strip()
         full_df['signifier'] = full_df['signifier'].astype(str).str.lower().str.strip()
-        full_df = full_df.drop_duplicates(subset=['artist', 'line'])
-        status.update(label="✅ Database Online!", state="complete")
-    return full_df
+        return full_df.drop_duplicates(subset=['artist', 'line'])
 
 df = load_all_chunks()
 
-# SIDEBAR CONTROLS
-if df is not None:
-    st.sidebar.header("Search Settings")
-    exact_match = st.sidebar.checkbox("Exact match only (no 'caterpillar' for 'cat')", value=True)
-    use_synonyms = st.sidebar.checkbox("Enable Synonym Expansion (Datamuse)", value=False)
-    result_limit = st.sidebar.slider("Results to display", 10, 500, 50)
-    st.sidebar.divider()
-    st.sidebar.success(f"🔥 {len(df):,} unique similes loaded.")
-else:
-    st.error("❌ No data files found in root!")
+if df is None:
+    st.error("❌ No data files found.")
     st.stop()
 
-# 3. UTILITIES
+# 3. UTILITIES & API
 @st.cache_data
 def get_synonyms(word):
     try:
         response = requests.get(f"https://api.datamuse.com/words?ml={word}&max=5", timeout=2)
-        if response.status_code == 200:
-            return [item['word'] for item in response.json()]
-    except: pass
-    return []
+        return [item['word'] for item in response.json()] if response.status_code == 200 else []
+    except: return []
 
 def crop_long_text(text, target_word, radius=100):
     text_str = str(text)
@@ -75,35 +60,42 @@ def highlight_sentence(text, terms):
     return text
 
 # 4. SEARCH UI
-query = st.text_input("Search for a concept...", placeholder="e.g. cat, bullet, winter")
+st.title("🎤 Rap Simile Engine")
+query = st.text_input("What are you looking for?", placeholder="e.g. cat, bullet, winter")
+use_synonyms = st.checkbox("🧠 Brainstorm: Search for related concepts too", value=False)
+
+# Initialize Session State for pagination and shuffling
+if 'display_limit' not in st.session_state: st.session_state.display_limit = 100
+if 'random_seed' not in st.session_state: st.session_state.random_seed = 42
 
 if query:
     q = query.lower().strip()
     search_terms = [q]
     
     if use_synonyms:
-        with st.spinner("🧠 Expanding vocabulary..."):
-            syns = get_synonyms(q)
-            search_terms.extend(syns)
-            if syns: st.caption(f"Also searching for: {', '.join(syns)}")
+        with st.spinner("Expanding vocabulary..."):
+            search_terms.extend(get_synonyms(q))
 
-    with st.spinner(f"🔍 Scanning {len(df):,} similes..."):
-        # Create Regex Pattern
-        if exact_match:
-            # \b matches word boundaries only
-            pattern = '|'.join([rf'\b{re.escape(t)}\b' for t in search_terms])
-        else:
-            pattern = '|'.join([re.escape(t) for t in search_terms])
-            
-        mask = (df['signified'].str.contains(pattern, regex=True, na=False)) | \
-               (df['signifier'].str.contains(pattern, regex=True, na=False))
-        results = df[mask]
+    with st.spinner(f"Scanning {len(df):,} similes..."):
+        # We use Word Boundaries (\b) for all searches now to solve the 'caterpillar' issue
+        pattern = '|'.join([rf'\b{re.escape(t)}\b' for t in search_terms])
+        results = df[df['signified'].str.contains(pattern, regex=True, na=False) | 
+                     df['signifier'].str.contains(pattern, regex=True, na=False)]
 
-    if results.empty:
-        st.warning(f"No results found for '{q}'.")
-    else:
-        st.success(f"Found {len(results):,} matches.")
-        for _, row in results.head(result_limit).iterrows():
+    if not results.empty:
+        col1, col2 = st.columns([4, 1])
+        with col1:
+            st.success(f"Found {len(results):,} total matches for your concept.")
+        with col2:
+            if st.button("🎲 Re-Shuffle"):
+                st.session_state.random_seed += 1
+                st.session_state.display_limit = 100
+        
+        # Shuffle results based on seed
+        display_df = results.sample(frac=1, random_state=st.session_state.random_seed)
+        
+        # Display Loop
+        for _, row in display_df.head(st.session_state.display_limit).iterrows():
             short_line = crop_long_text(row['line'], q)
             clean_line = highlight_sentence(short_line, search_terms)
             st.markdown(f"""
@@ -115,3 +107,14 @@ if query:
                 </div>
             </div>
             """, unsafe_allow_html=True)
+
+        # "Load More" as an alternative to Auto-scroll (Streamlit limitation)
+        if len(results) > st.session_state.display_limit:
+            if st.button("⬇️ Load 100 More Results"):
+                st.session_state.display_limit += 100
+                st.rerun()
+    else:
+        st.warning(f"No results found for '{q}'.")
+
+else:
+    st.info(f"The engine is hot. {len(df):,} similes ready to be explored.")
