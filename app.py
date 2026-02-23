@@ -20,7 +20,7 @@ st.markdown("""
         background-color: #1e1e24; 
         padding: 16px; 
         border-radius: 12px; 
-        margin-bottom: 12px; /* Tighter vertical spacing */
+        margin-bottom: 12px; 
         box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
         border: none;
     }
@@ -28,7 +28,7 @@ st.markdown("""
         font-size: 1.15em;
         line-height: 1.5;
         color: #e0e0e0;
-        margin-bottom: 8px; /* Tighter gap above metadata */
+        margin-bottom: 8px; 
     }
     .meta-text { 
         color: #777; 
@@ -45,16 +45,20 @@ st.markdown("""
 def load_all_chunks():
     all_files = glob.glob("similes_part_*.csv")
     if not all_files: return None
+    
     with st.spinner("📥 Waking up the engine..."):
         df_list = [pd.read_csv(f) for f in sorted(all_files)]
         full_df = pd.concat(df_list, ignore_index=True)
         
-        # Standardize text first so our filters catch everything
+        # Strip trailing spaces and standardize case
         full_df['signified'] = full_df['signified'].astype(str).str.lower().str.strip()
         full_df['signifier'] = full_df['signifier'].astype(str).str.lower().str.strip()
         
-        # THE WEAK VERB PURGE
-        # Kills any simile built on a generic action or feeling
+        # 1. Catch lingering bad phrases in the raw line
+        bad_phrases = 'sounds like|sound like|feels like|feel like|looks like|look like|seems like'
+        full_df = full_df[~full_df['line'].str.contains(bad_phrases, case=False, regex=True, na=False)]
+        
+        # 2. THE WEAK VERB PURGE (Kills lazy writing)
         weak_verbs = {
             'feel', 'feels', 'feeling', 'felt',
             'look', 'looks', 'looking', 'looked',
@@ -76,11 +80,15 @@ def load_all_chunks():
             'play', 'plays', 'playing', 'played',
             'treat', 'treats', 'treating', 'treated'
         }
-        
-        # Keep only the rows where the signified is NOT in our weak_verbs list
         full_df = full_df[~full_df['signified'].isin(weak_verbs)]
         
         return full_df.drop_duplicates(subset=['artist', 'line'])
+
+df = load_all_chunks()
+
+if df is None:
+    st.error("❌ No data files found.")
+    st.stop()
 
 # 3. UTILITIES & API
 @st.cache_data
@@ -99,6 +107,7 @@ def crop_long_text(text, target_word, radius=50):
         start = max(0, match.start() - radius)
         end = min(len(text_str), match.end() + radius)
         
+        # Snap to spaces
         if start > 0: start = text_str.find(' ', start) + 1
         if end < len(text_str): 
             last_space = text_str.rfind(' ', 0, end)
@@ -118,7 +127,6 @@ def highlight_sentence(text, terms):
     return text
 
 # 4. SEARCH UI (Headless & Modern)
-# Adding some spacing at the top so it doesn't hug the browser edge too tightly
 st.write("<br>", unsafe_allow_html=True)
 
 query = st.text_input(
@@ -155,7 +163,6 @@ if query:
         
         display_df = results.sample(frac=1, random_state=st.session_state.random_seed)
         
-        # Tighter gap between the two columns
         cols = st.columns(2, gap="small")
         
         for i, (_, row) in enumerate(display_df.head(st.session_state.display_limit).iterrows()):
@@ -163,7 +170,6 @@ if query:
             clean_line = highlight_sentence(short_line, search_terms)
             
             col = cols[i % 2]
-            
             with col:
                 st.markdown(f"""
                 <div class="simile-box">
@@ -174,7 +180,6 @@ if query:
 
         if len(results) > st.session_state.display_limit:
             st.write("") 
-            # Full width button applied here
             if st.button("⬇️ Load 100 More Results", use_container_width=True):
                 st.session_state.display_limit += 100
                 st.rerun()
