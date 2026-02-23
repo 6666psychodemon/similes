@@ -28,10 +28,17 @@ def load_all_chunks():
         df_list = [pd.read_csv(f) for f in sorted(all_files)]
         full_df = pd.concat(df_list, ignore_index=True)
         
+        full_df['signified'] = full_df['signified'].astype(str).str.lower().str.strip()
+        full_df['signifier'] = full_df['signifier'].astype(str).str.lower().str.strip()
+        
+        # 1. Catch bad phrases in the raw line (sensory verbs)
         bad_phrases = 'sounds like|sound like|feels like|feel like|looks like|look like|seems like'
         full_df = full_df[~full_df['line'].str.contains(bad_phrases, case=False, regex=True, na=False)]
         
-        weak_verbs = {
+        # 2. THE WEAK VERB & PREFERENCE PURGE
+        # Kills lazy writing AND "preference vs comparison" false positives
+        blocked_signifiers = {
+            # Weak verbs
             'feel', 'feels', 'feeling', 'felt', 'look', 'looks', 'looking', 'looked',
             'smile', 'smiles', 'smiling', 'smiled', 'act', 'acts', 'acting', 'acted',
             'sound', 'sounds', 'sounding', 'sounded', 'seem', 'seems', 'seeming', 'seemed',
@@ -41,11 +48,13 @@ def load_all_chunks():
             'talk', 'talks', 'talking', 'talked', 'run', 'runs', 'running', 'ran',
             'dress', 'dresses', 'dressing', 'dressed', 'stand', 'stands', 'standing', 'stood',
             'work', 'works', 'working', 'worked', 'play', 'plays', 'playing', 'played',
-            'treat', 'treats', 'treating', 'treated'
+            'treat', 'treats', 'treating', 'treated',
+            # Preference & Conversational filler
+            'just', 'really', 'simply', 'actually', 'already', 'only', 'some',
+            'men', 'women', 'people', 'niggas', 'bitches', 'hoes', 'girls', 'boys',
+            'they', 'we', 'i', 'you', 'he', 'she', 'everybody', 'nobody', 'someone', 'anyone'
         }
-        full_df['signified'] = full_df['signified'].astype(str).str.lower().str.strip()
-        full_df['signifier'] = full_df['signifier'].astype(str).str.lower().str.strip()
-        full_df = full_df[~full_df['signified'].isin(weak_verbs)]
+        full_df = full_df[~full_df['signified'].isin(blocked_signifiers)]
         
         return full_df.drop_duplicates(subset=['artist', 'line'])
 
@@ -65,7 +74,6 @@ def get_synonyms(word, limit=10):
 
 @st.cache_data
 def get_cliches(word, limit):
-    """Fetches the most common word associations to build a blocklist."""
     if limit == 0: return []
     try:
         res = requests.get(f"https://api.datamuse.com/words?rel_trg={word}&max={limit}", timeout=2)
@@ -128,10 +136,8 @@ if query:
             lens_terms = [collider_lens.lower().strip()] + get_synonyms(collider_lens.lower().strip(), 40)
 
     with st.spinner("Scanning database..."):
-        # 1. Base Regex Pattern
         pattern = '|'.join([rf'\b{re.escape(t)}\b' for t in search_terms])
         
-        # 2. Structural Pivot Filter
         if pivot == "Subject (e.g., 'Target like X')":
             mask = df['signified'].str.contains(pattern, regex=True, na=False)
         elif pivot == "Object (e.g., 'X like Target')":
@@ -141,28 +147,22 @@ if query:
             
         results = df[mask]
 
-        # 3. Concept Collider Filter
         if collider_lens and not results.empty:
             lens_pattern = '|'.join([rf'\b{re.escape(t)}\b' for t in lens_terms])
-            # If the search term is the Subject, the Lens must be in the Object (and vice versa)
             results = results[
                 results['signified'].str.contains(lens_pattern, regex=True, na=False) | 
                 results['signifier'].str.contains(lens_pattern, regex=True, na=False)
             ]
-            search_terms.extend(lens_terms) # Add to highlights
+            search_terms.extend(lens_terms)
 
-        # 4. Anti-Cliché Filter
         if cliche_strictness > 0 and not results.empty:
             cliches = get_cliches(q, cliche_strictness)
             if cliches:
                 cliche_pattern = '|'.join([rf'\b{re.escape(c)}\b' for c in cliches])
-                # Drop rows where EITHER side contains the cliché
                 results = results[~results['signified'].str.contains(cliche_pattern, regex=True, na=False) & 
                                   ~results['signifier'].str.contains(cliche_pattern, regex=True, na=False)]
 
-        # 5. End of Bar Filter
         if end_of_bar and not results.empty:
-            # Matches the search terms followed by optional punctuation and the end of the string
             end_pattern = rf"({pattern})[^\w]*$"
             results = results[results['line'].str.contains(end_pattern, regex=True, case=False, na=False)]
 
