@@ -49,18 +49,38 @@ def load_all_chunks():
         df_list = [pd.read_csv(f) for f in sorted(all_files)]
         full_df = pd.concat(df_list, ignore_index=True)
         
-        bad_phrases = 'sounds like|sound like|feels like|feel like|looks like|look like|seems like'
-        full_df = full_df[~full_df['line'].str.contains(bad_phrases, case=False, regex=True, na=False)]
-        
+        # Standardize text first so our filters catch everything
         full_df['signified'] = full_df['signified'].astype(str).str.lower().str.strip()
         full_df['signifier'] = full_df['signifier'].astype(str).str.lower().str.strip()
+        
+        # THE WEAK VERB PURGE
+        # Kills any simile built on a generic action or feeling
+        weak_verbs = {
+            'feel', 'feels', 'feeling', 'felt',
+            'look', 'looks', 'looking', 'looked',
+            'smile', 'smiles', 'smiling', 'smiled',
+            'act', 'acts', 'acting', 'acted',
+            'sound', 'sounds', 'sounding', 'sounded',
+            'seem', 'seems', 'seeming', 'seemed',
+            'smell', 'smells', 'smelling', 'smelled',
+            'taste', 'tastes', 'tasting', 'tasted',
+            'stare', 'stares', 'staring', 'stared',
+            'laugh', 'laughs', 'laughing', 'laughed',
+            'cry', 'cries', 'crying', 'cried',
+            'walk', 'walks', 'walking', 'walked',
+            'talk', 'talks', 'talking', 'talked',
+            'run', 'runs', 'running', 'ran',
+            'dress', 'dresses', 'dressing', 'dressed',
+            'stand', 'stands', 'standing', 'stood',
+            'work', 'works', 'working', 'worked',
+            'play', 'plays', 'playing', 'played',
+            'treat', 'treats', 'treating', 'treated'
+        }
+        
+        # Keep only the rows where the signified is NOT in our weak_verbs list
+        full_df = full_df[~full_df['signified'].isin(weak_verbs)]
+        
         return full_df.drop_duplicates(subset=['artist', 'line'])
-
-df = load_all_chunks()
-
-if df is None:
-    st.error("❌ No data files found.")
-    st.stop()
 
 # 3. UTILITIES & API
 @st.cache_data
