@@ -3,11 +3,12 @@ import pandas as pd
 import glob
 import re
 import requests
+import os
 
 # 1. PAGE CONFIG
 st.set_page_config(page_title="Rap Simile Engine V11", page_icon="🎤", layout="wide")
 
-# Custom Dark Aesthetic for Maqsum / Underground Style
+# Custom Dark Aesthetic
 st.markdown("""
 <style>
     .highlight { background-color: #ff4b4b; color: #ffffff; padding: 0 4px; border-radius: 4px; font-weight: bold; }
@@ -21,34 +22,56 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# 2. LOAD DATA & LIVE SANITIZE (Updated for V11 Schema)
+# 2. LOAD DATA & LIVE SANITIZE
 @st.cache_data
 def load_all_chunks():
-    # Updated glob to match your new "metadata" naming
-    all_files = glob.glob("similes_metadata_part_*.csv")
-    if not all_files: return None
+    # Detect the script's actual location
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+    file_pattern = os.path.join(base_dir, "similes_metadata_part_*.csv")
+    all_files = glob.glob(file_pattern)
+    
+    if not all_files:
+        # Fallback to current working directory if absolute path fails
+        all_files = glob.glob("similes_metadata_part_*.csv")
+        
+    if not all_files:
+        return None
     
     with st.spinner("📥 Extracting metaphors from the vault..."):
-        df_list = [pd.read_csv(f) for f in sorted(all_files)]
+        # Sort files numerically to ensure consistent loading
+        all_files.sort(key=lambda x: [int(c) if c.isdigit() else c for c in re.split(r'(\d+)', x)])
+        
+        df_list = []
+        for f in all_files:
+            try:
+                temp_df = pd.read_csv(f)
+                df_list.append(temp_df)
+            except Exception as e:
+                st.warning(f"Skipping {f} due to error: {e}")
+        
         full_df = pd.concat(df_list, ignore_index=True)
         
         # Clean data
         full_df['signified'] = full_df['signified'].astype(str).str.lower().str.strip()
         full_df['signifier'] = full_df['signifier'].astype(str).str.lower().str.strip()
         
-        # Filter out sensory clichés (the "look like/sound like" trap)
+        # Filter sensory clichés
         bad_phrases = 'sounds like|sound like|feels like|feel like|looks like|look like|seems like'
         full_df = full_df[~full_df['line'].str.contains(bad_phrases, case=False, regex=True, na=False)]
         
-        # Remove empty or broken years
-        full_df = full_df[full_df['year'].notna()]
+        # Ensure 'year' is numeric and drop invalid entries
+        full_df['year'] = pd.to_numeric(full_df['year'], errors='coerce')
+        full_df = full_df.dropna(subset=['year'])
         
         return full_df.drop_duplicates(subset=['artist', 'line'])
 
 df = load_all_chunks()
 
 if df is None:
-    st.error("❌ No data files found. Make sure the 'similes_metadata_part_*.csv' files are in the same folder as this script.")
+    # Debug helper for when it fails
+    st.error("❌ No data files found.")
+    st.write("Checking directory:", os.getcwd())
+    st.write("Visible files:", os.listdir("."))
     st.stop()
 
 # 3. UTILITIES
@@ -60,26 +83,25 @@ def get_synonyms(word, limit=10):
     except: return []
 
 def highlight_sentence(text, terms):
+    # Sort terms by length (desc) to avoid partial highlighting of longer words
     terms = sorted(list(set([t for t in terms if len(str(t)) > 1])), key=len, reverse=True)
     for term in terms:
         text = re.sub(rf'\b({re.escape(str(term))})\b', r'<span class="highlight">\1</span>', text, flags=re.IGNORECASE)
     return text
 
-# 4. SIDEBAR - NEW METADATA FILTERS
+# 4. SIDEBAR - METADATA FILTERS
 st.sidebar.title("🎛️ Filter the Engine")
 
-# Year Range Filter
-min_year = int(df[df['year'].apply(lambda x: str(x).isdigit())]['year'].min())
-max_year = int(df[df['year'].apply(lambda x: str(x).isdigit())]['year'].max())
-year_range = st.sidebar.slider("Era (Year)", min_year, max_year, (1990, max_year))
+min_year_val = int(df['year'].min())
+max_year_val = int(df['year'].max())
+year_range = st.sidebar.slider("Era (Year)", min_year_val, max_year_val, (1990, max_year_val))
 
-# Popularity Filter
+# Views filter
 min_views = st.sidebar.select_slider("Popularity (Views)", options=[0, 1000, 10000, 100000, 1000000], value=0)
 
-# Filter the master DF based on sidebar
+# Apply Sidebar Filters
 df_filtered = df[
-    (df['year'].astype(str).str.isdigit()) & 
-    (df['year'].astype(int).between(year_range[0], year_range[1])) &
+    (df['year'].between(year_range[0], year_range[1])) &
     (df['views'] >= min_views)
 ]
 
@@ -155,4 +177,4 @@ if query:
     else:
         st.warning("No matches in this era. Try widening the Year range or checking for synonyms.")
 else:
-    st.info(f"The Engine is loaded with {len(df_filtered):,} similes from your selection. Type a word to start.")
+    st.info(f"The Engine is loaded with {len(df_filtered):,} similes. Type a word to start.")
