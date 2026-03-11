@@ -11,7 +11,6 @@ st.set_page_config(page_title="Rap Simile Engine V11", page_icon="🎤", layout=
 # Custom Dark Aesthetic - Maqsum Edition
 st.markdown("""
 <style>
-    /* Global Styles */
     .stApp { background-color: #0e0e10; }
     .highlight { background-color: #ff4b4b; color: #ffffff; padding: 0 4px; border-radius: 4px; font-weight: bold; }
     
@@ -61,6 +60,7 @@ st.markdown("""
         font-size: 0.9em;
         margin-right: 8px;
     }
+    .star-rating { color: #ffb400; font-size: 0.9em; margin-left: 5px; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -86,7 +86,9 @@ def load_all_chunks():
         full_df['signified'] = full_df['signified'].astype(str).str.lower().str.strip()
         full_df['signifier'] = full_df['signifier'].astype(str).str.lower().str.strip()
         full_df['year'] = pd.to_numeric(full_df['year'], errors='coerce')
-        full_df = full_df.dropna(subset=['year'])
+        
+        # FIX: The "Christ's Birth" Problem - Force a realistic Rap era
+        full_df = full_df[(full_df['year'] >= 1980) & (full_df['year'] <= 2026)]
         
         # Remove sensory noise
         bad_phrases = 'sounds like|sound like|feels like|feel like|looks like|look like|seems like'
@@ -97,7 +99,7 @@ def load_all_chunks():
 df = load_all_chunks()
 
 if df is None:
-    st.error("❌ No data files found. Check your file path or naming convention.")
+    st.error("❌ No data files found.")
     st.stop()
 
 # 3. UTILITIES
@@ -114,29 +116,36 @@ def highlight_sentence(text, terms):
         text = re.sub(rf'\b({re.escape(str(term))})\b', r'<span class="highlight">\1</span>', text, flags=re.IGNORECASE)
     return text
 
-# 4. UNIFIED COMMAND CENTER (Replaces Sidebar)
+# 4. UNIFIED COMMAND CENTER
 st.title("🎤 Rap Simile Engine")
 
 with st.container():
-    # Search Row
     col_search, col_syn = st.columns([4, 1])
     with col_search:
         query = st.text_input("", placeholder="Search for an image (e.g. ghost, brick, winter)...", label_visibility="collapsed")
     with col_syn:
-        use_synonyms = st.checkbox("🧠 Brainstorm", value=False, help="Include related concepts")
+        use_synonyms = st.checkbox("🧠 Brainstorm", value=False)
 
-    # Filter/Expander Row
-    with st.expander("🎛️ Filter & Structure Controls", expanded=True):
+    with st.expander("🎛️ Engine Controls", expanded=True):
         f_col1, f_col2, f_col3 = st.columns([2, 2, 2])
         
         with f_col1:
-            st.markdown("**Timeline**")
-            min_y, max_y = int(df['year'].min()), int(df['year'].max())
-            year_range = st.slider("", min_y, max_y, (1990, max_y), label_visibility="collapsed")
+            st.markdown("**Timeline (Rap Era)**")
+            # Logic check: ensures slider stays within real hip-hop bounds
+            year_range = st.slider("", 1980, 2026, (1995, 2026), label_visibility="collapsed")
             
         with f_col2:
-            st.markdown("**Popularity Threshold**")
-            min_views = st.select_slider("", options=[0, 1000, 10000, 100000, 1000000], value=0, label_visibility="collapsed")
+            st.markdown("**Popularity (Underground vs. Stars)**")
+            # Mapping 5 stars to view counts
+            pop_map = {
+                "⭐ (Deep Underground)": 0,
+                "⭐⭐ (Niche)": 1000,
+                "⭐⭐⭐ (Established)": 10000,
+                "⭐⭐⭐⭐ (Mainstream)": 100000,
+                "⭐⭐⭐⭐⭐ (Superstars)": 1000000
+            }
+            star_label = st.select_slider("", options=list(pop_map.keys()), value="⭐ (Deep Underground)", label_visibility="collapsed")
+            min_views = pop_map[star_label]
             
         with f_col3:
             st.markdown("**Grammar Pivot**")
@@ -172,18 +181,18 @@ if query:
 
     # 7. TWO-COLUMN DISPLAY
     if not results.empty:
-        st.write(f"Showing **{len(results):,}** similes for '{query}'")
+        st.write(f"Showing **{len(results):,}** similes")
         
         display_df = results.sample(frac=1, random_state=st.session_state.random_seed)
-        
-        # Create the two-column grid
         res_col1, res_col2 = st.columns(2)
         
         for i, (_, row) in enumerate(display_df.head(st.session_state.display_limit).iterrows()):
             clean_line = highlight_sentence(row['line'], search_terms)
-            
-            # Alternate between columns
             target_col = res_col1 if i % 2 == 0 else res_col2
+            
+            # Simple view-to-star display in the card
+            v = row['views']
+            stars = "⭐" * (5 if v >= 1000000 else 4 if v >= 100000 else 3 if v >= 10000 else 2 if v >= 1000 else 1)
             
             with target_col:
                 st.markdown(f"""
@@ -191,7 +200,7 @@ if query:
                     <div class="lyric-text">{clean_line}</div>
                     <div class="meta-text">
                         <span class="year-pill">{int(row['year'])}</span>
-                        {row['artist']} — {row['song']}
+                        {row['artist']} <span class="star-rating">{stars}</span>
                     </div>
                 </div>
                 """, unsafe_allow_html=True)
@@ -201,6 +210,6 @@ if query:
                 st.session_state.display_limit += 40
                 st.rerun()
     else:
-        st.warning(f"No results for '{query}' in that year range. Try widening the timeline.")
+        st.warning(f"No results for '{query}'. Try lowering the star rating.")
 else:
-    st.info(f"Database ready: {len(df_filtered):,} similes active based on your filters.")
+    st.info(f"Database ready: {len(df_filtered):,} similes active.")
